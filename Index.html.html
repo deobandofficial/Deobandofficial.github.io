@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Band Room v3</title>
+<style>
+:root{--bg:#d8d0bf;--paper:#f5f0e4;--ink:#1d1b18;--mute:#6d675b;--red:#c3352b;--note:#f1dd7e;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1a1917;--paper:#27251f;--ink:#ede7d8;--mute:#9d9686;--red:#e5594d}}
+:root[data-theme="dark"]{--bg:#1a1917;--paper:#27251f;--ink:#ede7d8;--mute:#9d9686;--red:#e5594d}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 'Courier New',Courier,monospace;min-height:100%}
+#app{max-width:680px;margin:0 auto;padding:18px 16px 60px}
+h1,h2{font-family:Impact,'Arial Narrow Bold',sans-serif;font-weight:400;text-transform:uppercase;letter-spacing:.03em;margin:0}
+h1{font-size:44px;line-height:1;transform:rotate(-1deg);margin:6px 0 4px}
+h2{font-size:26px;margin:22px 0 10px}
+.sub{color:var(--mute);font-size:14px;margin-bottom:14px}
+nav{display:flex;flex-wrap:wrap;gap:4px 16px;border-bottom:2px solid var(--ink);padding-bottom:6px;margin:10px 0 4px}
+nav button{background:none;border:0;font:700 15px 'Courier New',monospace;color:var(--mute);padding:4px 0;cursor:pointer}
+nav button.on{color:var(--ink);box-shadow:0 3px 0 var(--red)}
+.card{background:var(--paper);border:1.5px solid var(--ink);box-shadow:3px 3px 0 var(--ink);padding:12px 14px;margin:0 0 14px}
+.card:nth-child(odd){transform:rotate(-.25deg)}.card:nth-child(even){transform:rotate(.2deg)}
+.card.past{opacity:.5}
+.note{background:var(--note);color:#2a2410;padding:12px 14px;transform:rotate(-1.2deg);box-shadow:2px 3px 0 rgba(0,0,0,.25);margin:14px 0;white-space:pre-wrap}
+.when{font-weight:700}.mute{color:var(--mute);font-size:14px}
+.tag{font-size:11px;font-weight:700;border:1.5px solid var(--red);color:var(--red);padding:0 5px;margin-left:6px;vertical-align:middle}
+button.b{font:700 15px 'Courier New',monospace;background:var(--ink);color:var(--paper);border:0;padding:8px 14px;cursor:pointer}
+button.b.alt{background:none;color:var(--ink);border:1.5px solid var(--ink)}
+button.lnk{background:none;border:0;color:var(--red);font:700 14px 'Courier New',monospace;cursor:pointer;padding:2px 0;margin-right:12px;text-decoration:underline}
+input,textarea{width:100%;font:16px 'Courier New',monospace;background:transparent;color:var(--ink);border:0;border-bottom:1.5px solid var(--ink);padding:6px 2px;margin:2px 0 10px;border-radius:0}
+textarea{border:1.5px solid var(--ink);padding:8px;min-height:110px}
+input:focus,textarea:focus{outline:2px solid var(--red);outline-offset:1px}
+label{font-size:13px;color:var(--mute);display:block}
+.row{display:flex;gap:12px}.row>div{flex:1;min-width:0}
+.pick{display:block;width:100%;text-align:left;font:inherit;color:var(--ink);cursor:pointer;background:none;border:0;padding:0}
+.pick b{font-size:18px}
+ol.set{margin:8px 0 0;padding-left:26px}ol.set li{padding:1px 0;border-bottom:1px dotted var(--mute)}
+.err{color:var(--red);font-weight:700;margin:4px 0 10px}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+</style></head>
+<body><div id="app"><h1>Band Room</h1><p class="sub">loading…</p></div>
+<script>window.addEventListener('error',function(e){var d=document.getElementById('app');d.innerHTML='<h1>Band Room</h1><p>Something broke: '+String(e.message).replace(/</g,'&lt;')+'</p><p class="sub">Your browser may be too old. Send this message to Adam.</p>'});</script>
+<script>
+// ====== PASTE YOUR TWO SUPABASE VALUES BETWEEN THE QUOTES ======
+const SUPABASE_URL = 'https://amxvngubbsuizstdvfnz.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_d2sxmU-ESRJS6iY6GwtDLA_g880Z_Py';
+// ===============================================================
+
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $=id=>document.getElementById(id), v=id=>(($(id)||{}).value||'').trim();
+let S={m:[],r:[],e:[],s:[],meta:{},me:null,list:[],token:null,booted:false,setup:false,fatal:'',tab:'overview',pick:null,edit:null,arm:null,reset:null,err:'',fill:null};
+try{S.token=localStorage.getItem('bandToken')}catch(e){}
+const store=t=>{try{t?localStorage.setItem('bandToken',t):localStorage.removeItem('bandToken')}catch(e){}};
+const adm=()=>!!(S.me&&S.me.is_admin);
+const configured=()=>!SUPABASE_URL.includes('PASTE')&&!SUPABASE_KEY.includes('PASTE');
+
+async function api(fn,args={}){
+  const ac=new AbortController(),to=setTimeout(()=>ac.abort(),12000);
+  let r;
+  try{r=await fetch(SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',signal:ac.signal,headers:{'Content-Type':'application/json',apikey:SUPABASE_KEY},body:JSON.stringify(args)})}
+  catch(e){throw new Error(e.name==='AbortError'?'Timed out reaching the database.':'Could not reach the database. Check your connection.')}
+  finally{clearTimeout(to)}
+  const j=await r.json().catch(()=>null);
+  if(!r.ok)throw new Error((j&&j.message)||'Request failed');
+  return j;
+}
+async function refresh(){
+  const d=await api('get_all',{p_token:S.token});
+  Object.assign(S,{me:d.me,m:d.members,r:d.rehearsals,e:d.events,s:d.setlists,meta:d.meta||{}});
+}
+async function boot(){
+  if(!configured()){S.booted=true;return render()}
+  try{
+    S.setup=await api('needs_setup');
+    if(!S.setup){
+      S.list=await api('list_members');
+      if(S.token){try{await refresh()}catch(e){S.token=null;store(null)}}
+    }
+  }catch(e){S.fatal=e.message}
+  S.booted=true;render();
+}
+setInterval(async()=>{if(S.token&&S.me&&!document.hidden){try{await refresh();render(true)}catch(e){}}},20000);
+render();
+boot();
+
+const today=()=>new Date().toLocaleDateString('en-CA');
+const fd=d=>{if(!d)return'';const x=new Date(d+'T00:00');return isNaN(x)?d:x.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'})};
+const byDate=(a,b)=>((a.day||'')+(a.at||'')).localeCompare((b.day||'')+(b.at||''));
+const field=(id,l,t='text',m='')=>`<label for="${id}">${l}</label><input id="${id}" type="${t}" ${m?`inputmode="${m}"`:''} autocomplete="off">`;
+
+function render(keep){
+  const a=document.activeElement,app=$('app');
+  if(keep&&a&&/INPUT|TEXTAREA/.test(a.tagName)&&app.contains(a))return;
+  const vals={};app.querySelectorAll('input,textarea').forEach(i=>{if(i.id)vals[i.id]=i.value});
+  draw(app);
+  app.querySelectorAll('input,textarea').forEach(i=>{if(keep&&vals[i.id]!=null)i.value=vals[i.id]});
+  if(!keep){const f={o_name:S.meta.band_name||'',o_note:S.meta.notice||'',...(S.fill||{})};S.fill=null;for(const k in f)if($(k))$(k).value=f[k]}
+}
+function draw(app){
+  if(!configured())return app.innerHTML=`<h1>Band Room</h1><div class="card"><div class="when">Almost there</div><p>Open index.html in a text editor and paste your Supabase URL and key at the top of the script.</p></div>`;
+  if(!S.booted)return app.innerHTML='<h1>Band Room</h1><p class="sub">loading…</p>';
+  if(S.fatal)return app.innerHTML=`<h1>Band Room</h1><div class="card"><div class="when">Couldn't connect</div><p>${esc(S.fatal)}</p><p class="mute">Check the URL and key, and that setup.sql ran without errors.</p></div>`;
+  if(S.setup)return app.innerHTML=`<h1>Band Room</h1><p class="sub">First time here. Make the first admin account (that's you).</p>
+  <div class="card">${field('s_name','Your name')}${field('s_role','Instrument / role')}${field('s_pin','Choose a PIN (4 to 8 digits)','password','numeric')}<div class="err">${esc(S.err)}</div><button class="b" data-a="setup">Create & enter</button></div>`;
+  if(!S.me)return app.innerHTML=loginView();
+  app.innerHTML=shell(({overview,rehearsals,events,setlists,members})[S.tab]());
+}
+
+function loginView(){
+  const p=S.list.find(x=>x.id===S.pick);
+  if(p)return`<h1>Band Room</h1><div class="card"><div class="when">${esc(p.name)}</div><div class="mute">${esc(p.role)}</div><br>${field('pin','Your PIN','password','numeric')}
+  <div class="err">${esc(S.err)}</div><button class="b" data-a="login">Enter</button> <button class="b alt" data-a="back">Not me</button></div>`;
+  return`<h1>Band Room</h1><p class="sub">Who are you?</p>`+S.list.map(m=>`<div class="card"><button class="pick" data-a="pick" data-id="${m.id}"><b>${esc(m.name)}</b><br><span class="mute">${esc(m.role)}</span></button></div>`).join('');
+}
+function shell(body){
+  const t=[['overview','overview'],['rehearsals','rehearsals'],['events','events'],['setlists','setlists'],['members','band']];
+  return`<div class="top"><h1>${esc(S.meta.band_name||'Band Room')}</h1><button class="lnk" data-a="logout">log out</button></div>
+  <div class="sub">${esc(S.me.name)} · ${esc(S.me.role)}${adm()?'<span class="tag">ADMIN</span>':''}</div>
+  <nav>${t.map(([k,l])=>`<button data-a="tab" data-id="${k}" class="${S.tab===k?'on':''}">${l}</button>`).join('')}</nav>${body}`}
+
+function overview(){
+  const t=today(),nr=[...S.r].filter(x=>x.day>=t).sort(byDate)[0],ne=[...S.e].filter(x=>x.day>=t).sort(byDate)[0],ls=S.s[S.s.length-1];
+  const item=(h,x,extra)=>`<div class="card"><div class="mute">${h}</div>${x?`<div class="when">${esc(fd(x.day))}${x.at?' · '+esc(x.at):''}</div><div>${esc(extra(x))}</div>`:'<div class="mute">Nothing booked.</div>'}</div>`;
+  return`${S.meta.notice?`<div class="note">${esc(S.meta.notice)}</div>`:''}
+  <h2>Coming up</h2>${item('Next rehearsal',nr,x=>x.place||'')}${item('Next event',ne,x=>x.title+(x.place?' @ '+x.place:''))}
+  <div class="card"><div class="mute">Setlists</div><div>${S.s.length?S.s.length+' saved'+(ls?` · latest: ${esc(ls.name)}`:''):'None yet.'}</div></div>
+  ${adm()?`<h2>Edit overview</h2><div class="card">${field('o_name','Band name')}<label for="o_note">Pinned note for everyone</label><textarea id="o_note"></textarea><div class="err">${esc(S.err)}</div><button class="b" data-a="meta">Save</button></div>`:''}`}
+
+function listView(kind){
+  const R=kind==='r',arr=[...(R?S.r:S.e)].sort(byDate),t=today();
+  return`<h2>${R?'Rehearsals':'Events'}</h2>`+(arr.length?arr.map(x=>`<div class="card ${x.day<t?'past':''}"><div class="when">${esc(fd(x.day))}${x.at?' · '+esc(x.at):''}</div>
+  ${x.title?`<div><b>${esc(x.title)}</b></div>`:''}<div>${esc(x.place||'')}</div>${x.notes?`<div class="mute">${esc(x.notes)}</div>`:''}
+  ${adm()?`<button class="lnk" data-a="del" data-k="${kind}" data-id="${x.id}">${S.arm===x.id?'sure?':'delete'}</button>`:''}</div>`).join(''):'<p class="mute">Nothing here yet.</p>')+
+  (adm()?`<h2>Add ${R?'rehearsal':'event'}</h2><div class="card">${R?'':field('f_title','Event name')}<div class="row"><div>${field('f_date','Date','date')}</div><div>${field('f_time','Time')}</div></div>${field('f_place','Where')}${field('f_notes','Notes')}<div class="err">${esc(S.err)}</div><button class="b" data-a="add" data-k="${kind}">Add</button></div>`:'')}
+const rehearsals=()=>listView('r'), events=()=>listView('e');
+
+function setlists(){
+  const ed=S.s.find(x=>x.id===S.edit);
+  return`<h2>Setlists</h2>`+(S.s.length?S.s.map(x=>`<div class="card"><div class="when">${esc(x.name)}</div><ol class="set">${(x.songs||[]).map(s=>`<li>${esc(s)}</li>`).join('')}</ol>
+  ${adm()?`<div style="margin-top:10px"><button class="lnk" data-a="editS" data-id="${x.id}">edit</button><button class="lnk" data-a="del" data-k="s" data-id="${x.id}">${S.arm===x.id?'sure?':'delete'}</button></div>`:''}</div>`).join(''):'<p class="mute">None yet.</p>')+
+  (adm()?`<h2>${ed?'Edit':'New'} setlist</h2><div class="card">${field('l_name','Name (e.g. Friday gig)')}<label for="l_songs">Songs, one per line, in order</label><textarea id="l_songs"></textarea><div class="err">${esc(S.err)}</div><button class="b" data-a="saveS">Save</button>${ed?' <button class="b alt" data-a="cancelS">Cancel</button>':''}</div>`:'')}
+
+function members(){
+  return`<h2>Band</h2>`+S.m.map(m=>`<div class="card"><b>${esc(m.name)}</b>${m.is_admin?'<span class="tag">ADMIN</span>':''}<div class="mute">${esc(m.role)}</div>
+  ${adm()?`<div style="margin-top:8px">${m.id!==S.me.id?`<button class="lnk" data-a="admin" data-id="${m.id}">${m.is_admin?'remove admin':'make admin'}</button>`:''}<button class="lnk" data-a="resetOpen" data-id="${m.id}">new PIN</button>${m.id!==S.me.id?`<button class="lnk" data-a="del" data-k="m" data-id="${m.id}">${S.arm===m.id?'sure?':'remove'}</button>`:''}</div>
+  ${S.reset===m.id?`<div style="margin-top:8px">${field('n_pin','New PIN for '+esc(m.name),'password','numeric')}<button class="b" data-a="resetDo" data-id="${m.id}">Save PIN</button></div>`:''}`:''}</div>`).join('')+
+  (adm()?`<h2>Add member</h2><div class="card">${field('m_name','Name')}${field('m_role','Instrument / role')}${field('m_pin','Their PIN (tell them yourself)','password','numeric')}<div class="err">${esc(S.err)}</div><button class="b" data-a="addM">Add</button></div>`:'')}
+
+const badPin=p=>!/^\d{4,8}$/.test(p);
+const run=async f=>{try{S.err='';await f()}catch(e){S.err=e.message||'Could not save.'}render(!!S.err)};
+const T=()=>({p_token:S.token});
+const write=async(fn,args)=>{await api(fn,{...T(),...args});await refresh()};
+
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a,id=b.dataset.id,k=b.dataset.k;
+  run(async()=>{
+    if(a==='tab'){S.tab=id;S.edit=S.reset=S.arm=null}
+    else if(a==='pick'){S.pick=id}
+    else if(a==='back'){S.pick=null}
+    else if(a==='logout'){try{await api('logout',T())}catch(x){}S.token=null;S.me=null;S.pick=null;store(null);S.list=await api('list_members')}
+    else if(a==='setup'){const n=v('s_name'),r=v('s_role'),p=v('s_pin');if(!n||!r){S.err='Needs a name and a role.';return}if(badPin(p)){S.err='PIN needs 4 to 8 digits.';return}
+      S.token=await api('setup_admin',{p_name:n,p_role:r,p_pin:p});store(S.token);S.setup=false;await refresh()}
+    else if(a==='login'){const res=await api('login',{p_id:S.pick,p_pin:v('pin')});
+      if(res.token){S.token=res.token;store(S.token);S.pick=null;await refresh()}else S.err=res.error==='locked'?'Too many tries. Wait 5 minutes.':'Wrong PIN.'}
+    else if(a==='meta'){await write('save_meta',{p_band:v('o_name'),p_notice:$('o_note').value.trim()})}
+    else if(a==='add'){const d={p_id:null,p_day:v('f_date'),p_at:v('f_time'),p_place:v('f_place'),p_notes:v('f_notes')};
+      if(!d.p_day){S.err='Needs a date.';return}
+      if(k==='e'){d.p_title=v('f_title');if(!d.p_title){S.err='Needs a name and a date.';return}}
+      await write(k==='r'?'save_rehearsal':'save_event',d)}
+    else if(a==='del'){if(S.arm!==id){S.arm=id;return}S.arm=null;
+      if(k==='m')await write('remove_member',{p_id:id});else await write('delete_item',{p_kind:{r:'rehearsal',e:'event',s:'setlist'}[k],p_id:id})}
+    else if(a==='editS'){S.edit=id;const x=S.s.find(y=>y.id===id);S.fill={l_name:x.name,l_songs:(x.songs||[]).join('\n')}}
+    else if(a==='cancelS'){S.edit=null}
+    else if(a==='saveS'){const songs=$('l_songs').value.split('\n').map(x=>x.trim()).filter(Boolean),name=v('l_name');
+      if(!name||!songs.length){S.err='Needs a name and at least one song.';return}
+      await write('save_setlist',{p_id:S.edit||null,p_name:name,p_songs:songs});S.edit=null}
+    else if(a==='addM'){const n=v('m_name'),r=v('m_role'),p=v('m_pin');if(!n||!r){S.err='Needs a name and a role.';return}if(badPin(p)){S.err='PIN needs 4 to 8 digits.';return}
+      await write('add_member',{p_name:n,p_role:r,p_pin:p})}
+    else if(a==='admin'){const m=S.m.find(x=>x.id===id);await write('set_admin',{p_id:id,p_admin:!m.is_admin})}
+    else if(a==='resetOpen'){S.reset=S.reset===id?null:id}
+    else if(a==='resetDo'){const p=v('n_pin');if(badPin(p)){S.err='PIN needs 4 to 8 digits.';return}await write('reset_pin',{p_id:id,p_pin:p});S.reset=null}
+  });
+});
+</script></body></html>
